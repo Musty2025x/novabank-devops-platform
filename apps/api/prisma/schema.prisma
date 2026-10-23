@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String         @id @default(cuid())
+  displayName       String
+  accountNumber     String         @unique
+  currency          String         @default("USD")
+  balanceCents      BigInt         @default(0)
+  status            AccountStatus  @default(ACTIVE)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  ledgerEntries     LedgerEntry[]
+  sentTransfers     Transfer[]     @relation("TransferFrom")
+  receivedTransfers Transfer[]     @relation("TransferTo")
+
+  @@index([status])
+}
+
+model Transfer {
+  id                 String          @id @default(cuid())
+  fromAccountId      String
+  toAccountId        String
+  amountCents        BigInt
+  currency           String
+  description        String
+  idempotencyKey     String          @unique
+  requestFingerprint String
+  status             TransferStatus  @default(COMPLETED)
+  createdAt          DateTime        @default(now())
+  fromAccount        Account         @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccount          Account         @relation("TransferTo", fields: [toAccountId], references: [id])
+  ledgerEntries      LedgerEntry[]
+
+  @@index([createdAt])
+  @@index([fromAccountId, createdAt])
+  @@index([toAccountId, createdAt])
+}
+
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  accountId   String
+  transferId  String
+  direction   LedgerDirection
+  amountCents BigInt
+  createdAt   DateTime        @default(now())
+  account     Account         @relation(fields: [accountId], references: [id])
+  transfer    Transfer        @relation(fields: [transferId], references: [id])
+
+  @@index([accountId, createdAt])
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+}
+
+enum TransferStatus {
+  COMPLETED
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}

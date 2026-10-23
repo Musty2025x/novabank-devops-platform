@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+  api:
+    build: { context: ., dockerfile: Dockerfile.api }
+    working_dir: /app/apps/api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["3000:3000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+    restart: unless-stopped
+    networks: [backend, observability]
+  web:
+    build: { context: ., dockerfile: Dockerfile.web }
+    depends_on:
+      api: { condition: service_healthy }
+    ports: ["8080:80"]
+    restart: unless-stopped
+    networks: [frontend, backend]
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes: ["./compose/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "prometheus_data:/prometheus"]
+    ports: ["9090:9090"]
+    depends_on: [api]
+    restart: unless-stopped
+    networks: [observability]
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes: ["grafana_data:/var/lib/grafana", "./compose/grafana/provisioning:/etc/grafana/provisioning:ro"]
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+    restart: unless-stopped
+    networks: [observability]
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+networks:
+  frontend:
+  backend:
+  observability:

@@ -1,0 +1,2 @@
+import {describe,it,expect} from "vitest";import {parseMoneyToCents,centsToMoney} from "../src/money";
+describe("money helpers",()=>{it("parses exact cents",()=>{expect(parseMoneyToCents("12.34")).toBe(1234n);expect(parseMoneyToCents("8")).toBe(800n);expect(parseMoneyToCents("0.5")).toBe(50n);});it("formats cents",()=>{expect(centsToMoney(1234n)).toBe("12.34");expect(centsToMoney(5n)).toBe("0.05");});it("rejects invalid amounts",()=>{for(const v of ["0","-1","1.999","1e3","NaN","01.00",""])expect(()=>parseMoneyToCents(v)).toThrow();});});

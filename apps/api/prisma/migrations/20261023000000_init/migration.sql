@@ -1,0 +1,15 @@
+CREATE TYPE "AccountStatus" AS ENUM ('ACTIVE','FROZEN');
+CREATE TYPE "TransferStatus" AS ENUM ('COMPLETED');
+CREATE TYPE "LedgerDirection" AS ENUM ('DEBIT','CREDIT');
+CREATE TABLE "Account" ("id" TEXT PRIMARY KEY,"displayName" TEXT NOT NULL,"accountNumber" TEXT NOT NULL UNIQUE,"currency" TEXT NOT NULL DEFAULT 'USD',"balanceCents" BIGINT NOT NULL DEFAULT 0,"status" "AccountStatus" NOT NULL DEFAULT 'ACTIVE',"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE TABLE "Transfer" ("id" TEXT PRIMARY KEY,"fromAccountId" TEXT NOT NULL,"toAccountId" TEXT NOT NULL,"amountCents" BIGINT NOT NULL,"currency" TEXT NOT NULL,"description" TEXT NOT NULL,"idempotencyKey" TEXT NOT NULL UNIQUE,"requestFingerprint" TEXT NOT NULL,"status" "TransferStatus" NOT NULL DEFAULT 'COMPLETED',"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE "LedgerEntry" ("id" TEXT PRIMARY KEY,"accountId" TEXT NOT NULL,"transferId" TEXT NOT NULL,"direction" "LedgerDirection" NOT NULL,"amountCents" BIGINT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX "Account_status_idx" ON "Account"("status");
+CREATE INDEX "Transfer_createdAt_idx" ON "Transfer"("createdAt");
+CREATE INDEX "Transfer_fromAccountId_createdAt_idx" ON "Transfer"("fromAccountId","createdAt");
+CREATE INDEX "Transfer_toAccountId_createdAt_idx" ON "Transfer"("toAccountId","createdAt");
+CREATE INDEX "LedgerEntry_accountId_createdAt_idx" ON "LedgerEntry"("accountId","createdAt");
+ALTER TABLE "Transfer" ADD CONSTRAINT "Transfer_fromAccountId_fkey" FOREIGN KEY ("fromAccountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Transfer" ADD CONSTRAINT "Transfer_toAccountId_fkey" FOREIGN KEY ("toAccountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_transferId_fkey" FOREIGN KEY ("transferId") REFERENCES "Transfer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
