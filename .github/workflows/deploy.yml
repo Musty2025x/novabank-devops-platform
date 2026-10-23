@@ -1,35 +1,54 @@
 name: Deploy NovaBank to EC2
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      DEPLOY_PATH: /home/ec2-user/novabank
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
           set -euo pipefail
+          : "${EC2_HOST:?Missing GitHub secret EC2_HOST}"
+          : "${EC2_USER:?Missing GitHub secret EC2_USER}"
+          : "${EC2_SSH_KEY:?Missing GitHub secret EC2_SSH_KEY}"
+          : "${DEPLOY_PATH:?Deployment path is empty}"
+
           install -m 700 -d ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
           ssh "$EC2_USER@$EC2_HOST" "mkdir -p '$DEPLOY_PATH'"
+
       - name: Copy project
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-        run: rsync -az --delete --exclude='.git' --exclude='.env' ./ "$EC2_USER@$EC2_HOST:$DEPLOY_PATH/"
-      - name: Deploy
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-        run: ssh "$EC2_USER@$EC2_HOST" "cd '$DEPLOY_PATH' && docker compose up -d --build && docker compose exec -T api npm run db:deploy && docker compose exec -T api npm run db:seed"
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='.env' \
+            ./ "$EC2_USER@$EC2_HOST:$DEPLOY_PATH/"
+
+      - name: Deploy application
+        run: |
+          set -euo pipefail
+          ssh "$EC2_USER@$EC2_HOST" \
+            "cd '$DEPLOY_PATH' &&
+             docker compose up -d --build &&
+             docker compose exec -T api npm run db:deploy &&
+             docker compose exec -T api npm run db:seed"
