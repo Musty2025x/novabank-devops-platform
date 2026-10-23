@@ -32,6 +32,20 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
+    description = "Grafana HTTP UI"
+    from_port   = 3001
+    to_port     = 3001
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+   ingress {
+    description = "Prometheus HTTP UI"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
     description = "Restricted SSH"
     from_port   = 22
     to_port     = 22
