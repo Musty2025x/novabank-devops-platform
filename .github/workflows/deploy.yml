@@ -24,31 +24,94 @@ jobs:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           set -euo pipefail
-          : "${EC2_HOST:?Missing GitHub secret EC2_HOST}"
-          : "${EC2_USER:?Missing GitHub secret EC2_USER}"
-          : "${EC2_SSH_KEY:?Missing GitHub secret EC2_SSH_KEY}"
-          : "${DEPLOY_PATH:?Deployment path is empty}"
+
+          : "${EC2_HOST:?Missing EC2_HOST secret}"
+          : "${EC2_USER:?Missing EC2_USER secret}"
+          : "${EC2_SSH_KEY:?Missing EC2_SSH_KEY secret}"
 
           install -m 700 -d ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          ssh "$EC2_USER@$EC2_HOST" "mkdir -p '$DEPLOY_PATH'"
+          ssh "$EC2_USER@$EC2_HOST" \
+            "mkdir -p '$DEPLOY_PATH'"
 
       - name: Copy project
         run: |
           set -euo pipefail
+
           rsync -az --delete \
             --exclude='.git' \
             --exclude='.env' \
             ./ "$EC2_USER@$EC2_HOST:$DEPLOY_PATH/"
 
+      - name: Create production environment file
+        env:
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          : "${POSTGRES_DB:?Missing POSTGRES_DB secret}"
+          : "${POSTGRES_USER:?Missing POSTGRES_USER secret}"
+          : "${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD secret}"
+          : "${GRAFANA_ADMIN_USER:?Missing GRAFANA_ADMIN_USER secret}"
+          : "${GRAFANA_ADMIN_PASSWORD:?Missing GRAFANA_ADMIN_PASSWORD secret}"
+
+          # Write safely quoted dotenv values without printing secrets.
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          keys = [
+              "POSTGRES_DB",
+              "POSTGRES_USER",
+              "POSTGRES_PASSWORD",
+              "GRAFANA_ADMIN_USER",
+              "GRAFANA_ADMIN_PASSWORD",
+          ]
+
+          def dotenv_quote(value):
+              return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r") + '"'
+
+          lines = [f"{key}={dotenv_quote(os.environ[key])}" for key in keys]
+          lines.append(
+              "DATABASE_URL="
+              + dotenv_quote(
+                  "postgresql://"
+                  + os.environ["POSTGRES_USER"]
+                  + ":"
+                  + os.environ["POSTGRES_PASSWORD"]
+                  + "@postgres:5432/"
+                  + os.environ["POSTGRES_DB"]
+                  + "?schema=public"
+              )
+          )
+
+          Path(".env.deploy").write_text("\n".join(lines) + "\n")
+          PY
+
+          # Transfer the generated file over SSH; never print its contents.
+          ssh "$EC2_USER@$EC2_HOST" \
+            "umask 077; cat > '$DEPLOY_PATH/.env'"
+
+          cat .env.deploy | ssh "$EC2_USER@$EC2_HOST" \
+            "umask 077; cat > '$DEPLOY_PATH/.env'"
+
+          rm -f .env.deploy
+
       - name: Deploy application
         run: |
           set -euo pipefail
+
           ssh "$EC2_USER@$EC2_HOST" \
             "cd '$DEPLOY_PATH' &&
+             chmod 600 .env &&
+             docker compose config --quiet &&
              docker compose up -d --build &&
              docker compose exec -T api npm run db:deploy &&
              docker compose exec -T api npm run db:seed"
